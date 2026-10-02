@@ -9,7 +9,7 @@ import { n as clsx, t as cva } from "../_libs/class-variance-authority+clsx.mjs"
 import { t as twMerge } from "../_libs/tailwind-merge.mjs";
 import { a as DialogOverlay$1, g as Slot, i as DialogDescription$1, n as DialogClose, o as DialogPortal$1, r as DialogContent$1, s as DialogTitle$1, t as Dialog$1 } from "../_libs/@radix-ui/react-dialog+[...].mjs";
 import { a as Trigger, i as Root3, n as Portal, r as Provider, t as Content2 } from "../_libs/@radix-ui/react-tooltip+[...].mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-n8X_J6Y-.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-Ci2kB-eU.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 /**
@@ -327,7 +327,11 @@ var createSsrRpc = (functionId) => {
 		[TSS_SERVER_FUNCTION]: true
 	});
 };
-var fetchLivePalettes = createServerFn({ method: "POST" }).validator((input) => ({ force: Boolean(input?.force) })).handler(createSsrRpc("2a7ae2fdadec1b910390de42d0e98e35eb3d279766ef6fe860d6b5308dc404a0"));
+var fetchLivePalettes = createServerFn({ method: "POST" }).validator((input) => ({
+	force: Boolean(input?.force),
+	excludeIds: Array.isArray(input?.excludeIds) ? input.excludeIds.filter((id) => /^\d{8,25}$/.test(id)).slice(0, 40) : [],
+	excludeHandles: Array.isArray(input?.excludeHandles) ? input.excludeHandles.filter((h) => /^@?[A-Za-z0-9_]{1,15}$/.test(h)).slice(0, 20) : []
+})).handler(createSsrRpc("2a7ae2fdadec1b910390de42d0e98e35eb3d279766ef6fe860d6b5308dc404a0"));
 var HEX = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i;
 function normalizeHex(input) {
 	const raw = input.trim();
@@ -1224,7 +1228,7 @@ function FeedDialog({ open, onOpenChange, palettes, activeId, searching, onRefre
 			className: "max-h-[min(36rem,85dvh)] overflow-hidden p-0",
 			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "p-6 pb-3",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DialogHeader, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(DialogTitle, { children: "From the feed" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DialogDescription, { children: searching ? "Searching recent posts on X…" : "Shuffle stays instant. A new batch is pulled from X about every 20 minutes, and the saved set stays underneath." })] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DialogHeader, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(DialogTitle, { children: "From the feed" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DialogDescription, { children: searching ? "Searching recent posts on X…" : "Shuffle stays instant. Search looks across design, art, fashion, and interiors, and the next pass skips posts already listed." })] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
 					variant: "outline",
 					size: "sm",
 					onClick: onRefresh,
@@ -1786,12 +1790,20 @@ function PaletteApp() {
 		const run = (async () => {
 			setSearching(true);
 			try {
-				const res = await fetchLivePalettes({ data: { force } });
-				if (res.palettes.length) {
-					setLive(res.palettes, res.fetchedAt);
-					if (res.fresh) toast(`${res.palettes.length} new posts`, { duration: 1400 });
-				}
-				if (force && res.error && !res.fresh) toast("Couldn't search X — using saved palettes", { duration: 1800 });
+				const state = usePalette.getState();
+				const res = await fetchLivePalettes({ data: {
+					force,
+					excludeIds: state.live.map((pal) => pal.id.replace(/^live-/, "")).filter((id) => /^\d+$/.test(id)),
+					excludeHandles: [...new Set(state.live.map((pal) => pal.handle))]
+				} });
+				const prev = usePalette.getState().live;
+				const seen = new Set(prev.map((pal) => pal.id));
+				const novel = res.palettes.filter((pal) => !seen.has(pal.id));
+				if (novel.length) {
+					setLive([...novel, ...prev].slice(0, 24), res.fetchedAt);
+					toast(`${novel.length} new posts`, { duration: 1400 });
+				} else if (force && res.error) toast("Couldn't search X — using saved palettes", { duration: 1800 });
+				else if (force) toast("No new posts this pass", { duration: 1600 });
 			} catch {
 				if (force) toast("Couldn't search X — using saved palettes", { duration: 1800 });
 			} finally {

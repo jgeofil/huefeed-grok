@@ -41,13 +41,22 @@ export function PaletteApp() {
     const run = (async () => {
       setSearching(true);
       try {
-        const res = await fetchLivePalettes({ data: { force } });
-        if (res.palettes.length) {
-          setLive(res.palettes, res.fetchedAt);
-          if (res.fresh) toast(`${res.palettes.length} new posts`, { duration: 1400 });
-        }
-        if (force && res.error && !res.fresh) {
+        const state = usePalette.getState();
+        const known = state.live
+          .map((pal) => pal.id.replace(/^live-/, ""))
+          .filter((id) => /^\d+$/.test(id));
+        const handles = [...new Set(state.live.map((pal) => pal.handle))];
+        const res = await fetchLivePalettes({ data: { force, excludeIds: known, excludeHandles: handles } });
+        const prev = usePalette.getState().live;
+        const seen = new Set(prev.map((pal) => pal.id));
+        const novel = res.palettes.filter((pal) => !seen.has(pal.id));
+        if (novel.length) {
+          setLive([...novel, ...prev].slice(0, 24), res.fetchedAt);
+          toast(`${novel.length} new posts`, { duration: 1400 });
+        } else if (force && res.error) {
           toast("Couldn't search X — using saved palettes", { duration: 1800 });
+        } else if (force) {
+          toast("No new posts this pass", { duration: 1600 });
         }
       } catch {
         if (force) toast("Couldn't search X — using saved palettes", { duration: 1800 });

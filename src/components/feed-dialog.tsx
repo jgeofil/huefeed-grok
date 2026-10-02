@@ -39,7 +39,7 @@ export function FeedDialog({
             <DialogDescription>
               {searching
                 ? "Searching recent posts on X…"
-                : "Shuffle stays instant. A new batch is pulled from X about every 20 minutes, and the saved set stays underneath."}
+                : "Shuffle stays instant. Search looks across design, art, fashion, and interiors, and the next pass skips posts already listed."}
             </DialogDescription>
           </DialogHeader>
           <Button variant="outline" size="sm" onClick={onRefresh} disabled={searching}>

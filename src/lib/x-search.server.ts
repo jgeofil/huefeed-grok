@@ -5,81 +5,108 @@ const TTL_MS = 20 * 60 * 1000;
 const HEX = /^#?[0-9A-Fa-f]{6}$/;
 
 type Cache = { at: number; palettes: FeedPalette[] };
+type SearchHit = Cache & { added: number };
 
 let cache: Cache | null = null;
-let inflight: Promise<Cache> | null = null;
+let inflight: Promise<SearchHit> | null = null;
 
 export type LiveSearchResult = {
   palettes: FeedPalette[];
   fetchedAt: number;
   fresh: boolean;
+  added: number;
   error?: string;
 };
 
-export async function searchLivePalettes(force = false): Promise<LiveSearchResult> {
+const WINDOW_DAYS = 45;
+const MAX_BATCH = 24;
+
+const ANGLES = [
+  "color palettes, hex codes, swatches, and mood boards",
+  "brand identity, packaging, posters, and graphic design",
+  "interiors, fashion, product design, and photography",
+  "illustration, film stills, pixel art, and print",
+];
+
+export async function searchLivePalettes(
+  force = false,
+  excludeIds: string[] = [],
+  excludeHandles: string[] = [],
+): Promise<LiveSearchResult> {
   if (!env("XAI_API_KEY")) {
-    return { palettes: cache?.palettes ?? [], fetchedAt: cache?.at ?? 0, fresh: false, error: "unconfigured" };
+    return { palettes: cache?.palettes ?? [], fetchedAt: cache?.at ?? 0, fresh: false, added: 0, error: "unconfigured" };
   }
   if (!force && cache && Date.now() - cache.at < TTL_MS) {
-    return { palettes: cache.palettes, fetchedAt: cache.at, fresh: false };
+    return { palettes: cache.palettes, fetchedAt: cache.at, fresh: false, added: 0 };
   }
   if (inflight) {
     try {
       const hit = await inflight;
-      return { palettes: hit.palettes, fetchedAt: hit.at, fresh: false };
+      return { palettes: hit.palettes, fetchedAt: hit.at, fresh: false, added: 0 };
     } catch (err) {
       const message = err instanceof Error ? err.message : "search failed";
-      return { palettes: cache?.palettes ?? [], fetchedAt: cache?.at ?? 0, fresh: false, error: message };
+      return { palettes: cache?.palettes ?? [], fetchedAt: cache?.at ?? 0, fresh: false, added: 0, error: message };
     }
   }
-  inflight = runSearch()
-    .then((palettes) => {
-      if (!palettes.length) throw new Error("no palettes");
-      cache = { at: Date.now(), palettes };
-      return cache;
+  const skip = new Set(excludeIds);
+  const handles = [...new Set(excludeHandles.map((h) => h.replace(/^@/, "")).filter((h) => /^[A-Za-z0-9_]{1,15}$/.test(h)))].slice(0, 20);
+  inflight = runSearch(skip, handles)
+    .then((found) => {
+      const prev = cache?.palettes ?? [];
+      const novel = found.filter((pal) => !skip.has(pal.id.slice(5)) && !prev.some((old) => old.id === pal.id));
+      const merged = [...novel, ...prev].slice(0, MAX_BATCH);
+      if (!merged.length) throw new Error("no palettes");
+      cache = { at: Date.now(), palettes: merged };
+      return { ...cache, added: novel.length };
     })
     .finally(() => {
       inflight = null;
     });
   try {
     const hit = await inflight;
-    return { palettes: hit.palettes, fetchedAt: hit.at, fresh: true };
+    return { palettes: hit.palettes, fetchedAt: hit.at, fresh: hit.added > 0, added: hit.added };
   } catch (err) {
     const message = err instanceof Error ? err.message : "search failed";
     return {
       palettes: cache?.palettes ?? [],
       fetchedAt: cache?.at ?? 0,
       fresh: false,
+      added: 0,
       error: message,
     };
   }
 }
 
-async function runSearch(): Promise<FeedPalette[]> {
+async function runSearch(skip: Set<string>, handles: string[]): Promise<FeedPalette[]> {
   const key = env("XAI_API_KEY");
   if (!key) return [];
   const to = new Date();
-  const from = new Date(to.getTime() - 21 * 24 * 60 * 60 * 1000);
+  const from = new Date(to.getTime() - WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const angle = ANGLES[(skip.size + handles.length) % ANGLES.length]!;
+  const skipped = [...skip].slice(0, 40);
+  const avoidIds = skipped.length ? ` Skip these status ids: ${skipped.join(", ")}.` : "";
+  const avoidHandles = handles.length ? ` Skip these accounts: ${handles.map((h) => `@${h}`).join(", ")}.` : "";
   const body = {
     model: "grok-4.7",
-    max_tool_calls: 2,
+    max_tool_calls: 4,
     reasoning: { effort: "low" },
     instructions:
-      "Search X at most twice, then stop. Reply with JSON only, no markdown. Never invent a post, a handle, or a hex code that is not in a post you found.",
+      "Search X up to four times, using different queries, then stop. The entire reply must be one JSON object and nothing else. Never invent a post, a handle, or a hex code.",
     input: [
       {
         role: "user",
-        content: `Find recent posts on X about design, art, or illustration that mention hex color codes or show a palette, color study, or artwork.
+        content: `Find recent X posts from the last ${WINDOW_DAYS} days about ${angle}.
 
-Return {"palettes":[ ... up to 8 ... ]} where each item is:
-{"name":"2 to 4 words","hexes":["#RRGGBB","#RRGGBB","#RRGGBB","#RRGGBB","#RRGGBB"],"handle":"screenName","author":"Display name","origin":"one sentence on the post","posted":"YYYY-MM-DD","postUrl":"https://x.com/handle/status/id","imageUrl":"https://pbs.twimg.com/media/...jpg or empty"}
+Look across design, art, illustration, branding, interiors, fashion, photography, posters, packaging, and UI. A post qualifies when it prints hex codes, or shows a palette, swatches, a color study, or a strongly colored artwork.
+
+Return {"palettes":[ up to 12 items ]} with this shape for each item:
+{"name":"2 to 4 words","hexes":["#RRGGBB","#RRGGBB","#RRGGBB","#RRGGBB","#RRGGBB"],"handle":"screenName","author":"Display name","origin":"one sentence","posted":"YYYY-MM-DD","postUrl":"https://x.com/handle/status/id","imageUrl":"https://pbs.twimg.com/media/file.jpg or empty"}
 
 Rules:
-- Copy hex codes that are written in the post. If an image shows a palette and you can read its colors, use those.
-- Need at least two real colors. If you have 2 to 4, fill to exactly 5 by making a clearly lighter or darker version of a real one.
-- Skip posts with no real colors.
-- imageUrl must be a pbs.twimg.com media URL from that post, or "".
-- postUrl must be the real status URL.`,
+- Use real hex codes from the post, or colors you can read from its image.
+- At least two real colors. If you have 2 to 4, fill to 5 with a lighter or darker version of one of them.
+- Find different accounts from the ones you are told to skip.${avoidIds}${avoidHandles}
+- If you cannot find 12, return as many real ones as you found. Do not reply with prose.`,
       },
     ],
     tools: [
@@ -90,14 +117,46 @@ Rules:
         enable_image_understanding: true,
       },
     ],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "palette_batch",
+        strict: true,
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["palettes"],
+          properties: {
+            palettes: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["name", "hexes", "handle", "author", "origin", "posted", "postUrl", "imageUrl"],
+                properties: {
+                  name: { type: "string" },
+                  hexes: { type: "array", items: { type: "string" } },
+                  handle: { type: "string" },
+                  author: { type: "string" },
+                  origin: { type: "string" },
+                  posted: { type: "string" },
+                  postUrl: { type: "string" },
+                  imageUrl: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
   };
 
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), 50_000);
+  const timer = setTimeout(() => ac.abort(), 75_000);
   try {
     let posted = await postSearch(body, ac.signal, key);
-    if (posted.status === 400 && "reasoning" in body) {
-      const { reasoning: _drop, ...plain } = body;
+    if (posted.status === 400) {
+      const { reasoning: _reasoning, text: _text, ...plain } = body;
       posted = await postSearch(plain, ac.signal, key);
     }
     if (posted.json.error) throw new Error(posted.json.error.message || "search failed");
@@ -173,7 +232,7 @@ export function parseSearchResponse(json: {
     if (!pal || seen.has(pal.id)) continue;
     seen.add(pal.id);
     out.push(pal);
-    if (out.length >= 8) break;
+    if (out.length >= 12) break;
   }
   return out;
 }
