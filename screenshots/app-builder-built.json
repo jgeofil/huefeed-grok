@@ -1,0 +1,38 @@
+{
+  "url": "http://127.0.0.1:8081/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "Huecast",
+      "hasCanvas": false,
+      "bodyTextLen": 539,
+      "bodyTextHash": "b024ad3ad1872de451910fa4c2a410a84735b9bdc62f40d790b4d7e258e40e84",
+      "bodyTextPrefix": "Huecast Botanical twist · @AlexCristache Export Shuffle #F5F3CE ",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "Huecast",
+      "hasCanvas": false,
+      "bodyTextLen": 336,
+      "bodyTextHash": "4d6edad3cd17d10a52ee35d7d4b3c594d28f1b50cd28200ba208d3cf1b7d5989",
+      "bodyTextPrefix": "Huecast #F5F3CE rgb(245, 243, 206) hsl(57, 66%, 88%) Aa 1.1 — Aa",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-built.json",
+  "divergesFromBaseline": false,
+  "baselineReasons": []
+}
