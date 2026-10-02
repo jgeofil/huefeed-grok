@@ -9,7 +9,7 @@ export type LiveSearchResult = {
 };
 
 export const fetchLivePalettes = createServerFn({ method: "POST" })
-  .inputValidator((input: { force?: boolean } | undefined) => ({
+  .validator((input: { force?: boolean } | undefined) => ({
     force: Boolean(input?.force),
   }))
   .handler(async ({ data }): Promise<LiveSearchResult> => {

@@ -47,6 +47,10 @@ function redirect(opts) {
 function isRedirect(obj) {
 	return obj instanceof Response && !!obj.options;
 }
+/** Parse a serialized redirect object back into a redirect Response. */
+function parseRedirect(obj) {
+	if (obj !== null && typeof obj === "object" && obj.isSerializedRedirect) return redirect(obj);
+}
 //#endregion
 //#region node_modules/@tanstack/router-core/dist/esm/ssr/ssr-match-id.js
 function dehydrateSsrMatchId(id) {
@@ -17274,4 +17278,4 @@ var renderRouterToStream = async ({ request, router, responseHeaders, children }
 	}
 };
 //#endregion
-export { getStylesheetHref as A, isPromise as B, fromJSON as C, createInlineCssPlaceholderAsset as D, toCrossJSONStream as E, executeRewriteInput as F, isRedirect as H, invariant as I, createSieveCache as L, resolveManifestCssLink as M, waitForReason as N, createInlineCssStyleAsset as O, _getRenderedMatches as P, decodePath as R, crossSerializeStream as S, toCrossJSONAsync as T, rootRouteId as U, dehydrateSsrMatchId as V, isNotFound as W, createFileRoute as _, isSsrResponse as a, createPlugin as b, stripSsrResponseBody as c, Scripts as d, HeadContent as f, lazyRouteComponent as g, Outlet as h, disposeSsrResponse as i, resolveManifestAssetLink as j, getScriptPreloadAttrs as k, createHydrationScripts as l, createRouter as m, bindSsrResponseToRequest as n, normalizeSsrResponse as o, RouterProvider as p, defineHandlerCallback as r, replaceSsrResponse as s, renderRouterToStream as t, GLOBAL_TSR as u, createRootRoute as v, isStream as w, createStream as x, useRouter as y, isDangerousProtocol as z };
+export { getStylesheetHref as A, isPromise as B, fromJSON as C, createInlineCssPlaceholderAsset as D, toCrossJSONStream as E, executeRewriteInput as F, isNotFound as G, isRedirect as H, invariant as I, createSieveCache as L, resolveManifestCssLink as M, waitForReason as N, createInlineCssStyleAsset as O, _getRenderedMatches as P, decodePath as R, crossSerializeStream as S, toCrossJSONAsync as T, parseRedirect as U, dehydrateSsrMatchId as V, rootRouteId as W, createFileRoute as _, isSsrResponse as a, createPlugin as b, stripSsrResponseBody as c, Scripts as d, HeadContent as f, lazyRouteComponent as g, Outlet as h, disposeSsrResponse as i, resolveManifestAssetLink as j, getScriptPreloadAttrs as k, createHydrationScripts as l, createRouter as m, bindSsrResponseToRequest as n, normalizeSsrResponse as o, RouterProvider as p, defineHandlerCallback as r, replaceSsrResponse as s, renderRouterToStream as t, GLOBAL_TSR as u, createRootRoute as v, isStream as w, createStream as x, useRouter as y, isDangerousProtocol as z };

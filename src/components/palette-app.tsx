@@ -20,7 +20,6 @@ export function PaletteApp() {
   const history = usePalette((s) => s.history);
   const future = usePalette((s) => s.future);
   const live = usePalette((s) => s.live);
-  const fetchedAt = usePalette((s) => s.fetchedAt);
   const shuffle = usePalette((s) => s.shuffle);
   const toggleLock = usePalette((s) => s.toggleLock);
   const setHex = usePalette((s) => s.setHex);
@@ -46,7 +45,8 @@ export function PaletteApp() {
         if (res.palettes.length) {
           setLive(res.palettes, res.fetchedAt);
           if (res.fresh) toast(`${res.palettes.length} new posts`, { duration: 1400 });
-        } else if (force && res.error) {
+        }
+        if (force && res.error && !res.fresh) {
           toast("Couldn't search X — using saved palettes", { duration: 1800 });
         }
       } catch {
@@ -90,11 +90,7 @@ export function PaletteApp() {
     ...FEED.filter((p) => !live.some((item) => item.id === p.id)),
   ];
   const source = catalog.find((p) => p.id === meta.feedId);
-  const sourceLabel = searching
-    ? "Searching X…"
-    : meta.handle
-      ? `${meta.name} · @${meta.handle}`
-      : meta.name;
+  const sourceLabel = meta.handle ? `${meta.name} · @${meta.handle}` : meta.name;
 
   return (
     <TooltipProvider>
@@ -132,11 +128,7 @@ export function PaletteApp() {
         </main>
 
         <footer className="hidden h-10 shrink-0 items-center justify-between border-t border-border px-5 text-xs text-muted-foreground sm:flex">
-          <p>
-            {live.length
-              ? `${live.length} new posts in this batch`
-              : "Cast from recent design and art posts on X"}
-          </p>
+          <p>Shuffle draws from a live batch of posts on X</p>
           <p className="font-mono tracking-tight">
             Space shuffle · 1–5 lock · click to copy · E export
           </p>

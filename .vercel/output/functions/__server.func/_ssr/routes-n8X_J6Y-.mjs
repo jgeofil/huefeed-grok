@@ -1,6 +1,7 @@
 import { i as __toESM } from "../_runtime.mjs";
 import { u as require_react } from "../_libs/@floating-ui/react-dom+[...].mjs";
 import { n as require_jsx_runtime } from "../_libs/radix-ui__react-context+react.mjs";
+import { n as TSS_SERVER_FUNCTION, r as getServerFnById, t as createServerFn } from "./ssr.mjs";
 import { a as Rss, c as Lock, d as Download, f as Copy, i as Shuffle, l as LockOpen, n as Undo2, o as Redo2, p as Check, s as Pipette, t as X, u as Keyboard } from "../_libs/lucide-react.mjs";
 import { n as toast, t as Toaster } from "../_libs/sonner.mjs";
 import { n as create, t as persist } from "../_libs/zustand.mjs";
@@ -8,7 +9,7 @@ import { n as clsx, t as cva } from "../_libs/class-variance-authority+clsx.mjs"
 import { t as twMerge } from "../_libs/tailwind-merge.mjs";
 import { a as DialogOverlay$1, g as Slot, i as DialogDescription$1, n as DialogClose, o as DialogPortal$1, r as DialogContent$1, s as DialogTitle$1, t as Dialog$1 } from "../_libs/@radix-ui/react-dialog+[...].mjs";
 import { a as Trigger, i as Root3, n as Portal, r as Provider, t as Content2 } from "../_libs/@radix-ui/react-tooltip+[...].mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-PtffLakT.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-n8X_J6Y-.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 /**
@@ -291,6 +292,10 @@ function feedImage(id) {
 	if (!id) return void 0;
 	return FEED_IMAGES[id];
 }
+function paletteStill(pal) {
+	if (pal.imageUrl && /^https:\/\/pbs\.twimg\.com\/media\//.test(pal.imageUrl)) return pal.imageUrl;
+	return feedImage(pal.id);
+}
 var FEED_IMAGES = {
 	"botanical-twist": "/feed/botanical-twist.jpg",
 	"coastal-gold": "/feed/coastal-gold.jpg",
@@ -310,6 +315,19 @@ var FEED_IMAGES = {
 	compliance: "/feed/compliance.jpg",
 	"soft-tone": "/feed/soft-tone.png"
 };
+var createSsrRpc = (functionId) => {
+	const url = "/_serverFn/" + functionId;
+	const serverFnMeta = { id: functionId };
+	const fn = async (...args) => {
+		return (await getServerFnById(functionId, { origin: "server" }))(...args);
+	};
+	return Object.assign(fn, {
+		url,
+		serverFnMeta,
+		[TSS_SERVER_FUNCTION]: true
+	});
+};
+var fetchLivePalettes = createServerFn({ method: "POST" }).validator((input) => ({ force: Boolean(input?.force) })).handler(createSsrRpc("2a7ae2fdadec1b910390de42d0e98e35eb3d279766ef6fe860d6b5308dc404a0"));
 var HEX = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i;
 function normalizeHex(input) {
 	const raw = input.trim();
@@ -711,11 +729,12 @@ function remix(a, b) {
 		a.hexes[4]
 	];
 }
-function matchFeedToLocked(lockedHexes) {
-	if (lockedHexes.length === 0) return pick(FEED);
-	let best = FEED[0];
+function matchFeedToLocked(lockedHexes, feed) {
+	const corpus = feed.length ? feed : FEED;
+	if (lockedHexes.length === 0) return pick(corpus);
+	let best = corpus[0];
 	let bestScore = Infinity;
-	for (const pal of FEED) {
+	for (const pal of corpus) {
 		let score = 0;
 		for (const hex of lockedHexes) {
 			const L = hexToHsl(hex);
@@ -734,10 +753,11 @@ function matchFeedToLocked(lockedHexes) {
 	}
 	return best;
 }
-function generatePalette(current, locked) {
+function generatePalette(current, locked, feed = FEED) {
+	const corpus = feed.length ? feed : FEED;
 	const lockedHexes = current.filter((_, i) => locked[i]);
 	const roll = Math.random();
-	const base = matchFeedToLocked(lockedHexes);
+	const base = matchFeedToLocked(lockedHexes, corpus);
 	let candidate;
 	let meta;
 	if (lockedHexes.length > 0 && roll < .45) {
@@ -759,7 +779,8 @@ function generatePalette(current, locked) {
 			feedId: base.id
 		};
 	} else if (roll < .7) {
-		const other = pick(FEED.filter((p) => p.id !== base.id));
+		const others = corpus.filter((p) => p.id !== base.id);
+		const other = others.length ? pick(others) : base;
 		candidate = jitterPalette(remix(base, other));
 		meta = {
 			kind: "remix",
@@ -819,6 +840,12 @@ function snapshotOf(s) {
 		meta: { ...s.meta }
 	};
 }
+function corpusOf(live) {
+	const fresh = live.filter((p) => p.hexes?.length === 5 && p.id);
+	if (!fresh.length) return FEED;
+	const ids = new Set(fresh.map((p) => p.id));
+	return [...fresh, ...FEED.filter((p) => !ids.has(p.id))];
+}
 var openingMeta = {
 	kind: "feed",
 	name: OPENING.name,
@@ -832,14 +859,20 @@ var usePalette = create()(persist((set, get) => ({
 	history: [],
 	future: [],
 	ready: false,
+	live: [],
+	fetchedAt: 0,
+	setLive: (palettes, fetchedAt) => set({
+		live: palettes,
+		fetchedAt
+	}),
 	hydrateDefault: () => {
 		if (get().ready) return;
 		set({ ready: true });
 	},
 	shuffle: () => {
-		const { swatches } = get();
+		const { swatches, live } = get();
 		if (swatches.every((s) => s.locked)) return false;
-		const next = generatePalette(swatches.map((s) => s.hex), swatches.map((s) => s.locked));
+		const next = generatePalette(swatches.map((s) => s.hex), swatches.map((s) => s.locked), corpusOf(live));
 		set((state) => ({
 			history: [...state.history, snapshotOf(state)].slice(-40),
 			future: [],
@@ -867,7 +900,7 @@ var usePalette = create()(persist((set, get) => ({
 		}));
 	},
 	applyFeed: (id) => {
-		const pal = FEED.find((p) => p.id === id);
+		const pal = corpusOf(get().live).find((p) => p.id === id);
 		if (!pal) return;
 		const next = applyFeedPalette(pal);
 		set((state) => ({
@@ -907,7 +940,9 @@ var usePalette = create()(persist((set, get) => ({
 	name: "huecast-palette",
 	partialize: (s) => ({
 		swatches: s.swatches,
-		meta: s.meta
+		meta: s.meta,
+		live: s.live,
+		fetchedAt: s.fetchedAt
 	})
 }));
 function cn(...inputs) {
@@ -1179,54 +1214,93 @@ function ExportDialog({ open, onOpenChange, hexes, meta }) {
 		] })
 	});
 }
-function FeedDialog({ open, onOpenChange, activeId, onPick }) {
+function FeedDialog({ open, onOpenChange, palettes, activeId, searching, onRefresh, onPick }) {
+	const live = palettes.filter((p) => p.live);
+	const saved = palettes.filter((p) => !p.live);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Dialog, {
 		open,
 		onOpenChange,
 		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DialogContent, {
 			className: "max-h-[min(36rem,85dvh)] overflow-hidden p-0",
-			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "p-6 pb-3",
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DialogHeader, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(DialogTitle, { children: "From the feed" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DialogDescription, { children: "Palettes pulled from recent design and art posts on X — hex codes in the copy, or colors read from attached images." })] })
-			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", {
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DialogHeader, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(DialogTitle, { children: "From the feed" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DialogDescription, { children: searching ? "Searching recent posts on X…" : "Shuffle stays instant. A new batch is pulled from X about every 20 minutes, and the saved set stays underneath." })] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+					variant: "outline",
+					size: "sm",
+					onClick: onRefresh,
+					disabled: searching,
+					children: searching ? "Searching" : "Search again"
+				})]
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("ul", {
 				className: "max-h-[min(24rem,55dvh)] overflow-auto px-3 pb-4",
-				children: FEED.map((pal) => {
-					const active = pal.id === activeId;
-					return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-						type: "button",
-						onClick: () => {
+				children: [
+					live.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Section, { label: "New posts" }) : null,
+					live.map((pal) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Row, {
+						pal,
+						active: pal.id === activeId,
+						onPick: () => {
 							onPick(pal.id);
 							onOpenChange(false);
-						},
-						className: `flex w-full flex-col gap-2 rounded-lg px-3 py-3 text-left transition-colors ${active ? "bg-accent" : "hover:bg-muted"}`,
-						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: "flex h-8 w-full overflow-hidden rounded-md",
-								children: pal.hexes.map((hex) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "h-full flex-1",
-									style: { backgroundColor: hex }
-								}, hex))
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-								className: "flex items-baseline justify-between gap-3",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "text-sm font-medium",
-									children: pal.name
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-									className: "font-mono text-xs text-muted-foreground",
-									children: ["@", pal.handle]
-								})]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-								className: "text-xs leading-snug text-muted-foreground",
-								children: pal.origin
-							})
-						]
-					}) }, pal.id);
-				})
+						}
+					}, pal.id)),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Section, { label: "Saved" }),
+					saved.map((pal) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Row, {
+						pal,
+						active: pal.id === activeId,
+						onPick: () => {
+							onPick(pal.id);
+							onOpenChange(false);
+						}
+					}, pal.id))
+				]
 			})]
 		})
 	});
+}
+function Section({ label }) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", {
+		className: "px-3 pt-2 pb-1 text-[11px] tracking-wide text-muted-foreground uppercase",
+		children: label
+	});
+}
+function Row({ pal, active, onPick }) {
+	const still = paletteStill(pal);
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+		type: "button",
+		onClick: onPick,
+		className: `flex w-full flex-col gap-2 rounded-lg px-3 py-3 text-left transition-colors ${active ? "bg-accent" : "hover:bg-muted"}`,
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+				className: "flex items-center gap-2",
+				children: [still ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+					src: still,
+					alt: "",
+					referrerPolicy: "no-referrer",
+					className: "h-10 w-14 shrink-0 rounded-md object-cover shadow-[var(--shadow-border)]"
+				}) : null, /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "flex h-8 min-w-0 flex-1 overflow-hidden rounded-md",
+					children: pal.hexes.map((hex) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "h-full flex-1",
+						style: { backgroundColor: hex }
+					}, hex))
+				})]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+				className: "flex items-baseline justify-between gap-3",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "text-sm font-medium",
+					children: pal.name
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+					className: "font-mono text-xs text-muted-foreground",
+					children: ["@", pal.handle]
+				})]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+				className: "text-xs leading-snug text-muted-foreground",
+				children: pal.origin
+			})
+		]
+	}) });
 }
 var ROWS = [
 	{
@@ -1464,7 +1538,7 @@ function SwatchColumn({ hex, locked, index, focused, onLock, onFocus, onPick }) 
 function SourceFrame({ palette }) {
 	const [open, setOpen] = (0, import_react.useState)(false);
 	if (!palette) return null;
-	const src = feedImage(palette.id);
+	const src = paletteStill(palette);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 		type: "button",
 		onClick: () => setOpen(true),
@@ -1474,7 +1548,8 @@ function SourceFrame({ palette }) {
 		children: src ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
 			src,
 			alt: "",
-			className: "animate-value-in h-full w-full object-contain outline outline-1 -outline-offset-1 outline-foreground/15"
+			className: "animate-value-in h-full w-full object-contain outline outline-1 -outline-offset-1 outline-foreground/15",
+			referrerPolicy: "no-referrer"
 		}, src) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 			className: "flex h-full w-full",
 			children: palette.hexes.map((hex) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
@@ -1492,7 +1567,8 @@ function SourceFrame({ palette }) {
 				children: src ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
 					src,
 					alt: `Post that inspired ${palette.name}`,
-					className: "max-h-[60dvh] w-full object-contain outline outline-1 -outline-offset-1 outline-foreground/10"
+					className: "max-h-[60dvh] w-full object-contain outline outline-1 -outline-offset-1 outline-foreground/10",
+					referrerPolicy: "no-referrer"
 				}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 					className: "flex h-40 w-full",
 					children: palette.hexes.map((hex) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
@@ -1502,12 +1578,22 @@ function SourceFrame({ palette }) {
 				})
 			}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DialogHeader, {
 				className: "mt-4 mb-0",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(DialogTitle, { children: palette.name }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DialogDescription, { children: [
-					"@",
-					palette.handle,
-					" · ",
-					palette.origin
-				] })]
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(DialogTitle, { children: palette.name }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DialogDescription, { children: [
+						"@",
+						palette.handle,
+						" · ",
+						palette.origin
+					] }),
+					palette.postUrl ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
+						href: palette.postUrl,
+						target: "_blank",
+						rel: "noreferrer",
+						className: "mt-2 inline-block text-sm underline underline-offset-4",
+						children: "Open post"
+					}) : null
+				]
 			})]
 		})
 	})] });
@@ -1673,12 +1759,14 @@ function Toolbar({ sourceLabel, source, canUndo, canRedo, shuffling, onShuffle, 
 		})]
 	});
 }
+var STALE_MS = 12e5;
 function PaletteApp() {
 	const swatches = usePalette((s) => s.swatches);
 	const meta = usePalette((s) => s.meta);
 	const focused = usePalette((s) => s.focused);
 	const history = usePalette((s) => s.history);
 	const future = usePalette((s) => s.future);
+	const live = usePalette((s) => s.live);
 	const shuffle = usePalette((s) => s.shuffle);
 	const toggleLock = usePalette((s) => s.toggleLock);
 	const setHex = usePalette((s) => s.setHex);
@@ -1686,10 +1774,39 @@ function PaletteApp() {
 	const applyFeed = usePalette((s) => s.applyFeed);
 	const undo = usePalette((s) => s.undo);
 	const redo = usePalette((s) => s.redo);
+	const setLive = usePalette((s) => s.setLive);
 	const [exportOpen, setExportOpen] = (0, import_react.useState)(false);
 	const [feedOpen, setFeedOpen] = (0, import_react.useState)(false);
 	const [helpOpen, setHelpOpen] = (0, import_react.useState)(false);
 	const [shuffling, setShuffling] = (0, import_react.useState)(false);
+	const [searching, setSearching] = (0, import_react.useState)(false);
+	const inflight = (0, import_react.useRef)(null);
+	const refresh = (0, import_react.useCallback)((force) => {
+		if (inflight.current) return inflight.current;
+		const run = (async () => {
+			setSearching(true);
+			try {
+				const res = await fetchLivePalettes({ data: { force } });
+				if (res.palettes.length) {
+					setLive(res.palettes, res.fetchedAt);
+					if (res.fresh) toast(`${res.palettes.length} new posts`, { duration: 1400 });
+				}
+				if (force && res.error && !res.fresh) toast("Couldn't search X — using saved palettes", { duration: 1800 });
+			} catch {
+				if (force) toast("Couldn't search X — using saved palettes", { duration: 1800 });
+			} finally {
+				setSearching(false);
+				inflight.current = null;
+			}
+		})();
+		inflight.current = run;
+		return run;
+	}, [setLive]);
+	(0, import_react.useEffect)(() => {
+		const state = usePalette.getState();
+		if (!(Date.now() - state.fetchedAt > STALE_MS) && state.live.length) return;
+		refresh(false);
+	}, [refresh]);
 	const onShuffle = (0, import_react.useCallback)(() => {
 		if (!shuffle()) {
 			toast("Unlock a color to shuffle", { duration: 1400 });
@@ -1697,14 +1814,16 @@ function PaletteApp() {
 		}
 		setShuffling(true);
 		window.setTimeout(() => setShuffling(false), 280);
-	}, [shuffle]);
+		if (Date.now() - usePalette.getState().fetchedAt > STALE_MS) refresh(false);
+	}, [refresh, shuffle]);
 	usePaletteHotkeys({
 		openExport: () => setExportOpen(true),
 		openFeed: () => setFeedOpen(true),
 		openShortcuts: () => setHelpOpen(true),
 		onShuffle
 	});
-	const source = FEED.find((p) => p.id === meta.feedId);
+	const catalog = [...live, ...FEED.filter((p) => !live.some((item) => item.id === p.id))];
+	const source = catalog.find((p) => p.id === meta.feedId);
 	const sourceLabel = meta.handle ? `${meta.name} · @${meta.handle}` : meta.name;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(TooltipProvider, { children: [
 		/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -1740,7 +1859,7 @@ function PaletteApp() {
 				}),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("footer", {
 					className: "hidden h-10 shrink-0 items-center justify-between border-t border-border px-5 text-xs text-muted-foreground sm:flex",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Cast from recent design and art posts on X" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Shuffle draws from a live batch of posts on X" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 						className: "font-mono tracking-tight",
 						children: "Space shuffle · 1–5 lock · click to copy · E export"
 					})]
@@ -1756,7 +1875,10 @@ function PaletteApp() {
 		/* @__PURE__ */ (0, import_jsx_runtime.jsx)(FeedDialog, {
 			open: feedOpen,
 			onOpenChange: setFeedOpen,
+			palettes: catalog,
 			activeId: meta.feedId,
+			searching,
+			onRefresh: () => void refresh(true),
 			onPick: applyFeed
 		}),
 		/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShortcutsDialog, {

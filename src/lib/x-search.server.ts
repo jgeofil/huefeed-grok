@@ -24,11 +24,17 @@ export async function searchLivePalettes(force = false): Promise<LiveSearchResul
     return { palettes: cache.palettes, fetchedAt: cache.at, fresh: false };
   }
   if (inflight) {
-    const hit = await inflight;
-    return { palettes: hit.palettes, fetchedAt: hit.at, fresh: false };
+    try {
+      const hit = await inflight;
+      return { palettes: hit.palettes, fetchedAt: hit.at, fresh: false };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "search failed";
+      return { palettes: cache?.palettes ?? [], fetchedAt: cache?.at ?? 0, fresh: false, error: message };
+    }
   }
   inflight = runSearch()
     .then((palettes) => {
+      if (!palettes.length) throw new Error("no palettes");
       cache = { at: Date.now(), palettes };
       return cache;
     })
@@ -89,29 +95,50 @@ Rules:
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), 50_000);
   try {
-    const res = await fetch("https://api.x.ai/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify(body),
-      signal: ac.signal,
-    });
-    const json = (await res.json()) as {
-      error?: { message?: string };
-      output?: Array<{
-        type?: string;
-        content?: Array<{ type?: string; text?: string; annotations?: Array<{ url?: string }> }>;
-      }>;
-    };
-    if (!res.ok) {
-      throw new Error(json.error?.message || `search ${res.status}`);
+    let posted = await postSearch(body, ac.signal, key);
+    if (posted.status === 400 && "reasoning" in body) {
+      const { reasoning: _drop, ...plain } = body;
+      posted = await postSearch(plain, ac.signal, key);
     }
-    return parseSearchResponse(json);
+    if (posted.json.error) throw new Error(posted.json.error.message || "search failed");
+    return parseSearchResponse(posted.json);
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function postSearch(
+  body: object,
+  signal: AbortSignal,
+  key: string,
+): Promise<{
+  status: number;
+  json: {
+    error?: { message?: string };
+    output?: Array<{
+      type?: string;
+      content?: Array<{ type?: string; text?: string; annotations?: Array<{ url?: string }> }>;
+    }>;
+  };
+}> {
+  const res = await fetch("https://api.x.ai/v1/responses", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  const json = (await res.json()) as {
+    error?: { message?: string };
+    output?: Array<{
+      type?: string;
+      content?: Array<{ type?: string; text?: string; annotations?: Array<{ url?: string }> }>;
+    }>;
+  };
+  if (!res.ok && !json.error) json.error = { message: `search ${res.status}` };
+  return { status: res.status, json };
 }
 
 export function parseSearchResponse(json: {

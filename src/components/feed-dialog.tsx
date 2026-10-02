@@ -33,7 +33,7 @@ export function FeedDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[min(36rem,85dvh)] overflow-hidden p-0">
-        <div className="flex items-start justify-between gap-3 p-6 pb-3">
+        <div className="p-6 pb-3">
           <DialogHeader>
             <DialogTitle>From the feed</DialogTitle>
             <DialogDescription>
@@ -42,13 +42,7 @@ export function FeedDialog({
                 : "Shuffle stays instant. A new batch is pulled from X about every 20 minutes, and the saved set stays underneath."}
             </DialogDescription>
           </DialogHeader>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRefresh}
-            disabled={searching}
-            className="shrink-0"
-          >
+          <Button variant="outline" size="sm" onClick={onRefresh} disabled={searching}>
             {searching ? "Searching" : "Search again"}
           </Button>
         </div>
