@@ -39,11 +39,11 @@ export function FeedDialog({
             <DialogDescription>
               {searching
                 ? "Searching recent posts on X…"
-                : "Shuffle stays instant. Search looks across design, art, fashion, and interiors, and the next pass skips posts already listed."}
+                : "Search runs only when you press the button. It looks across design, art, fashion, and interiors, and skips posts already listed."}
             </DialogDescription>
           </DialogHeader>
           <Button variant="outline" size="sm" onClick={onRefresh} disabled={searching}>
-            {searching ? "Searching" : "Search again"}
+            {searching ? "Searching" : "Search X"}
           </Button>
         </div>
         <ul className="max-h-[min(24rem,55dvh)] overflow-auto px-3 pb-4">

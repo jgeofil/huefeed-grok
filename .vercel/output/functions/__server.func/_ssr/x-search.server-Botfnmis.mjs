@@ -1,11 +1,13 @@
-//#region node_modules/.nitro/vite/services/ssr/assets/x-search.server-XEl33jB0.js
+//#region node_modules/.nitro/vite/services/ssr/assets/x-search.server-Botfnmis.js
 function env(key) {
 	return process.env[key]?.trim() || void 0;
 }
-var TTL_MS = 12e5;
+var MIN_GAP_MS = 2e4;
+var MAX_PER_HOUR = 6;
 var HEX = /^#?[0-9A-Fa-f]{6}$/;
 var cache = null;
 var inflight = null;
+var recentCalls = [];
 var WINDOW_DAYS = 45;
 var MAX_BATCH = 24;
 var ANGLES = [
@@ -22,11 +24,27 @@ async function searchLivePalettes(force = false, excludeIds = [], excludeHandles
 		added: 0,
 		error: "unconfigured"
 	};
-	if (!force && cache && Date.now() - cache.at < TTL_MS) return {
+	if (!force) return {
+		palettes: cache?.palettes ?? [],
+		fetchedAt: cache?.at ?? 0,
+		fresh: false,
+		added: 0
+	};
+	const now = Date.now();
+	if (cache && now - cache.at < MIN_GAP_MS) return {
 		palettes: cache.palettes,
 		fetchedAt: cache.at,
 		fresh: false,
-		added: 0
+		added: 0,
+		error: "soon"
+	};
+	recentCalls = recentCalls.filter((t) => now - t < 36e5);
+	if (recentCalls.length >= MAX_PER_HOUR) return {
+		palettes: cache?.palettes ?? [],
+		fetchedAt: cache?.at ?? 0,
+		fresh: false,
+		added: 0,
+		error: "capped"
 	};
 	if (inflight) try {
 		const hit = await inflight;
@@ -47,7 +65,9 @@ async function searchLivePalettes(force = false, excludeIds = [], excludeHandles
 		};
 	}
 	const skip = new Set(excludeIds);
-	inflight = runSearch(skip, [...new Set(excludeHandles.map((h) => h.replace(/^@/, "")).filter((h) => /^[A-Za-z0-9_]{1,15}$/.test(h)))].slice(0, 20)).then((found) => {
+	const handles = [...new Set(excludeHandles.map((h) => h.replace(/^@/, "")).filter((h) => /^[A-Za-z0-9_]{1,15}$/.test(h)))].slice(0, 20);
+	recentCalls.push(Date.now());
+	inflight = runSearch(skip, handles).then((found) => {
 		const prev = cache?.palettes ?? [];
 		const novel = found.filter((pal) => !skip.has(pal.id.slice(5)) && !prev.some((old) => old.id === pal.id));
 		const merged = [...novel, ...prev].slice(0, MAX_BATCH);
@@ -91,29 +111,30 @@ async function runSearch(skip, handles) {
 	const skipped = [...skip].slice(0, 40);
 	const body = {
 		model: "grok-4.7",
-		max_tool_calls: 4,
+		max_tool_calls: 2,
+		max_output_tokens: 2e3,
 		reasoning: { effort: "low" },
-		instructions: "Search X up to four times, using different queries, then stop. The entire reply must be one JSON object and nothing else. Never invent a post, a handle, or a hex code.",
+		instructions: "Search X at most twice, then stop. The entire reply must be one JSON object and nothing else. Never invent a post, a handle, or a hex code.",
 		input: [{
 			role: "user",
 			content: `Find recent X posts from the last ${WINDOW_DAYS} days about ${angle}.
 
-Look across design, art, illustration, branding, interiors, fashion, photography, posters, packaging, and UI. A post qualifies when it prints hex codes, or shows a palette, swatches, a color study, or a strongly colored artwork.
+Look across design, art, illustration, branding, interiors, fashion, photography, posters, packaging, and UI. Only include a post when the text itself prints hex codes.
 
-Return {"palettes":[ up to 12 items ]} with this shape for each item:
+Return {"palettes":[ up to 8 items ]} with this shape for each item:
 {"name":"2 to 4 words","hexes":["#RRGGBB","#RRGGBB","#RRGGBB","#RRGGBB","#RRGGBB"],"handle":"screenName","author":"Display name","origin":"one sentence","posted":"YYYY-MM-DD","postUrl":"https://x.com/handle/status/id","imageUrl":"https://pbs.twimg.com/media/file.jpg or empty"}
 
 Rules:
-- Use real hex codes from the post, or colors you can read from its image.
+- Use only hex codes written in the post. Do not guess colors from an image.
 - At least two real colors. If you have 2 to 4, fill to 5 with a lighter or darker version of one of them.
 - Find different accounts from the ones you are told to skip.${skipped.length ? ` Skip these status ids: ${skipped.join(", ")}.` : ""}${handles.length ? ` Skip these accounts: ${handles.map((h) => `@${h}`).join(", ")}.` : ""}
-- If you cannot find 12, return as many real ones as you found. Do not reply with prose.`
+- If you cannot find 8, return as many real ones as you found. Do not reply with prose.`
 		}],
 		tools: [{
 			type: "x_search",
 			from_date: from.toISOString().slice(0, 10),
 			to_date: to.toISOString().slice(0, 10),
-			enable_image_understanding: true
+			enable_image_understanding: false
 		}],
 		text: { format: {
 			type: "json_schema",

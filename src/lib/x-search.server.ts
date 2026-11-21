@@ -1,7 +1,8 @@
 import { env } from "./env.server";
 import type { FeedPalette } from "./feed";
 
-const TTL_MS = 20 * 60 * 1000;
+const MIN_GAP_MS = 20_000;
+const MAX_PER_HOUR = 6;
 const HEX = /^#?[0-9A-Fa-f]{6}$/;
 
 type Cache = { at: number; palettes: FeedPalette[] };
@@ -9,6 +10,7 @@ type SearchHit = Cache & { added: number };
 
 let cache: Cache | null = null;
 let inflight: Promise<SearchHit> | null = null;
+let recentCalls: number[] = [];
 
 export type LiveSearchResult = {
   palettes: FeedPalette[];
@@ -36,8 +38,22 @@ export async function searchLivePalettes(
   if (!env("XAI_API_KEY")) {
     return { palettes: cache?.palettes ?? [], fetchedAt: cache?.at ?? 0, fresh: false, added: 0, error: "unconfigured" };
   }
-  if (!force && cache && Date.now() - cache.at < TTL_MS) {
-    return { palettes: cache.palettes, fetchedAt: cache.at, fresh: false, added: 0 };
+  if (!force) {
+    return { palettes: cache?.palettes ?? [], fetchedAt: cache?.at ?? 0, fresh: false, added: 0 };
+  }
+  const now = Date.now();
+  if (cache && now - cache.at < MIN_GAP_MS) {
+    return { palettes: cache.palettes, fetchedAt: cache.at, fresh: false, added: 0, error: "soon" };
+  }
+  recentCalls = recentCalls.filter((t) => now - t < 60 * 60 * 1000);
+  if (recentCalls.length >= MAX_PER_HOUR) {
+    return {
+      palettes: cache?.palettes ?? [],
+      fetchedAt: cache?.at ?? 0,
+      fresh: false,
+      added: 0,
+      error: "capped",
+    };
   }
   if (inflight) {
     try {
@@ -50,6 +66,7 @@ export async function searchLivePalettes(
   }
   const skip = new Set(excludeIds);
   const handles = [...new Set(excludeHandles.map((h) => h.replace(/^@/, "")).filter((h) => /^[A-Za-z0-9_]{1,15}$/.test(h)))].slice(0, 20);
+  recentCalls.push(Date.now());
   inflight = runSearch(skip, handles)
     .then((found) => {
       const prev = cache?.palettes ?? [];
@@ -88,25 +105,26 @@ async function runSearch(skip: Set<string>, handles: string[]): Promise<FeedPale
   const avoidHandles = handles.length ? ` Skip these accounts: ${handles.map((h) => `@${h}`).join(", ")}.` : "";
   const body = {
     model: "grok-4.7",
-    max_tool_calls: 4,
+    max_tool_calls: 2,
+    max_output_tokens: 2000,
     reasoning: { effort: "low" },
     instructions:
-      "Search X up to four times, using different queries, then stop. The entire reply must be one JSON object and nothing else. Never invent a post, a handle, or a hex code.",
+      "Search X at most twice, then stop. The entire reply must be one JSON object and nothing else. Never invent a post, a handle, or a hex code.",
     input: [
       {
         role: "user",
         content: `Find recent X posts from the last ${WINDOW_DAYS} days about ${angle}.
 
-Look across design, art, illustration, branding, interiors, fashion, photography, posters, packaging, and UI. A post qualifies when it prints hex codes, or shows a palette, swatches, a color study, or a strongly colored artwork.
+Look across design, art, illustration, branding, interiors, fashion, photography, posters, packaging, and UI. Only include a post when the text itself prints hex codes.
 
-Return {"palettes":[ up to 12 items ]} with this shape for each item:
+Return {"palettes":[ up to 8 items ]} with this shape for each item:
 {"name":"2 to 4 words","hexes":["#RRGGBB","#RRGGBB","#RRGGBB","#RRGGBB","#RRGGBB"],"handle":"screenName","author":"Display name","origin":"one sentence","posted":"YYYY-MM-DD","postUrl":"https://x.com/handle/status/id","imageUrl":"https://pbs.twimg.com/media/file.jpg or empty"}
 
 Rules:
-- Use real hex codes from the post, or colors you can read from its image.
+- Use only hex codes written in the post. Do not guess colors from an image.
 - At least two real colors. If you have 2 to 4, fill to 5 with a lighter or darker version of one of them.
 - Find different accounts from the ones you are told to skip.${avoidIds}${avoidHandles}
-- If you cannot find 12, return as many real ones as you found. Do not reply with prose.`,
+- If you cannot find 8, return as many real ones as you found. Do not reply with prose.`,
       },
     ],
     tools: [
@@ -114,7 +132,7 @@ Rules:
         type: "x_search",
         from_date: from.toISOString().slice(0, 10),
         to_date: to.toISOString().slice(0, 10),
-        enable_image_understanding: true,
+        enable_image_understanding: false,
       },
     ],
     text: {

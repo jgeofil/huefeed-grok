@@ -9,7 +9,7 @@ import { n as clsx, t as cva } from "../_libs/class-variance-authority+clsx.mjs"
 import { t as twMerge } from "../_libs/tailwind-merge.mjs";
 import { a as DialogOverlay$1, g as Slot, i as DialogDescription$1, n as DialogClose, o as DialogPortal$1, r as DialogContent$1, s as DialogTitle$1, t as Dialog$1 } from "../_libs/@radix-ui/react-dialog+[...].mjs";
 import { a as Trigger, i as Root3, n as Portal, r as Provider, t as Content2 } from "../_libs/@radix-ui/react-tooltip+[...].mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-Ci2kB-eU.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-Cp-i0awG.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 /**
@@ -1228,12 +1228,12 @@ function FeedDialog({ open, onOpenChange, palettes, activeId, searching, onRefre
 			className: "max-h-[min(36rem,85dvh)] overflow-hidden p-0",
 			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "p-6 pb-3",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DialogHeader, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(DialogTitle, { children: "From the feed" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DialogDescription, { children: searching ? "Searching recent posts on X…" : "Shuffle stays instant. Search looks across design, art, fashion, and interiors, and the next pass skips posts already listed." })] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(DialogHeader, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(DialogTitle, { children: "From the feed" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DialogDescription, { children: searching ? "Searching recent posts on X…" : "Search runs only when you press the button. It looks across design, art, fashion, and interiors, and skips posts already listed." })] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
 					variant: "outline",
 					size: "sm",
 					onClick: onRefresh,
 					disabled: searching,
-					children: searching ? "Searching" : "Search again"
+					children: searching ? "Searching" : "Search X"
 				})]
 			}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("ul", {
 				className: "max-h-[min(24rem,55dvh)] overflow-auto px-3 pb-4",
@@ -1763,7 +1763,6 @@ function Toolbar({ sourceLabel, source, canUndo, canRedo, shuffling, onShuffle, 
 		})]
 	});
 }
-var STALE_MS = 12e5;
 function PaletteApp() {
 	const swatches = usePalette((s) => s.swatches);
 	const meta = usePalette((s) => s.meta);
@@ -1785,14 +1784,14 @@ function PaletteApp() {
 	const [shuffling, setShuffling] = (0, import_react.useState)(false);
 	const [searching, setSearching] = (0, import_react.useState)(false);
 	const inflight = (0, import_react.useRef)(null);
-	const refresh = (0, import_react.useCallback)((force) => {
+	const refresh = (0, import_react.useCallback)(() => {
 		if (inflight.current) return inflight.current;
 		const run = (async () => {
 			setSearching(true);
 			try {
 				const state = usePalette.getState();
 				const res = await fetchLivePalettes({ data: {
-					force,
+					force: true,
 					excludeIds: state.live.map((pal) => pal.id.replace(/^live-/, "")).filter((id) => /^\d+$/.test(id)),
 					excludeHandles: [...new Set(state.live.map((pal) => pal.handle))]
 				} });
@@ -1802,10 +1801,13 @@ function PaletteApp() {
 				if (novel.length) {
 					setLive([...novel, ...prev].slice(0, 24), res.fetchedAt);
 					toast(`${novel.length} new posts`, { duration: 1400 });
-				} else if (force && res.error) toast("Couldn't search X — using saved palettes", { duration: 1800 });
-				else if (force) toast("No new posts this pass", { duration: 1600 });
+				} else if (res.error === "soon") toast("Wait a few seconds before searching again", { duration: 1600 });
+				else if (res.error === "capped") toast("Search limit reached for this hour", { duration: 1800 });
+				else if (res.error === "unconfigured") toast("Search isn't available right now", { duration: 1800 });
+				else if (res.error) toast("Couldn't search X — using saved palettes", { duration: 1800 });
+				else toast("No new posts this pass", { duration: 1600 });
 			} catch {
-				if (force) toast("Couldn't search X — using saved palettes", { duration: 1800 });
+				toast("Couldn't search X — using saved palettes", { duration: 1800 });
 			} finally {
 				setSearching(false);
 				inflight.current = null;
@@ -1814,11 +1816,6 @@ function PaletteApp() {
 		inflight.current = run;
 		return run;
 	}, [setLive]);
-	(0, import_react.useEffect)(() => {
-		const state = usePalette.getState();
-		if (!(Date.now() - state.fetchedAt > STALE_MS) && state.live.length) return;
-		refresh(false);
-	}, [refresh]);
 	const onShuffle = (0, import_react.useCallback)(() => {
 		if (!shuffle()) {
 			toast("Unlock a color to shuffle", { duration: 1400 });
@@ -1826,8 +1823,7 @@ function PaletteApp() {
 		}
 		setShuffling(true);
 		window.setTimeout(() => setShuffling(false), 280);
-		if (Date.now() - usePalette.getState().fetchedAt > STALE_MS) refresh(false);
-	}, [refresh, shuffle]);
+	}, [shuffle]);
 	usePaletteHotkeys({
 		openExport: () => setExportOpen(true),
 		openFeed: () => setFeedOpen(true),
@@ -1871,7 +1867,7 @@ function PaletteApp() {
 				}),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("footer", {
 					className: "hidden h-10 shrink-0 items-center justify-between border-t border-border px-5 text-xs text-muted-foreground sm:flex",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Shuffle draws from a live batch of posts on X" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Shuffle uses the feed. Search X only when you ask." }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 						className: "font-mono tracking-tight",
 						children: "Space shuffle · 1–5 lock · click to copy · E export"
 					})]
@@ -1890,7 +1886,7 @@ function PaletteApp() {
 			palettes: catalog,
 			activeId: meta.feedId,
 			searching,
-			onRefresh: () => void refresh(true),
+			onRefresh: () => void refresh(),
 			onPick: applyFeed
 		}),
 		/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShortcutsDialog, {

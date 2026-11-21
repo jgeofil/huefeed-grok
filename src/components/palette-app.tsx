@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Toaster, toast } from "sonner";
 import { FEED, type FeedPalette } from "@/lib/feed";
 import { fetchLivePalettes } from "@/lib/live-feed";
@@ -10,8 +10,6 @@ import { ShortcutsDialog } from "./shortcuts-dialog";
 import { SwatchColumn } from "./swatch-column";
 import { Toolbar } from "./toolbar";
 import { TooltipProvider } from "./ui/tooltip";
-
-const STALE_MS = 20 * 60 * 1000;
 
 export function PaletteApp() {
   const swatches = usePalette((s) => s.swatches);
@@ -36,7 +34,7 @@ export function PaletteApp() {
   const [searching, setSearching] = useState(false);
   const inflight = useRef<Promise<void> | null>(null);
 
-  const refresh = useCallback((force: boolean) => {
+  const refresh = useCallback(() => {
     if (inflight.current) return inflight.current;
     const run = (async () => {
       setSearching(true);
@@ -46,20 +44,28 @@ export function PaletteApp() {
           .map((pal) => pal.id.replace(/^live-/, ""))
           .filter((id) => /^\d+$/.test(id));
         const handles = [...new Set(state.live.map((pal) => pal.handle))];
-        const res = await fetchLivePalettes({ data: { force, excludeIds: known, excludeHandles: handles } });
+        const res = await fetchLivePalettes({
+          data: { force: true, excludeIds: known, excludeHandles: handles },
+        });
         const prev = usePalette.getState().live;
         const seen = new Set(prev.map((pal) => pal.id));
         const novel = res.palettes.filter((pal) => !seen.has(pal.id));
         if (novel.length) {
           setLive([...novel, ...prev].slice(0, 24), res.fetchedAt);
           toast(`${novel.length} new posts`, { duration: 1400 });
-        } else if (force && res.error) {
+        } else if (res.error === "soon") {
+          toast("Wait a few seconds before searching again", { duration: 1600 });
+        } else if (res.error === "capped") {
+          toast("Search limit reached for this hour", { duration: 1800 });
+        } else if (res.error === "unconfigured") {
+          toast("Search isn't available right now", { duration: 1800 });
+        } else if (res.error) {
           toast("Couldn't search X — using saved palettes", { duration: 1800 });
-        } else if (force) {
+        } else {
           toast("No new posts this pass", { duration: 1600 });
         }
       } catch {
-        if (force) toast("Couldn't search X — using saved palettes", { duration: 1800 });
+        toast("Couldn't search X — using saved palettes", { duration: 1800 });
       } finally {
         setSearching(false);
         inflight.current = null;
@@ -69,13 +75,6 @@ export function PaletteApp() {
     return run;
   }, [setLive]);
 
-  useEffect(() => {
-    const state = usePalette.getState();
-    const stale = Date.now() - state.fetchedAt > STALE_MS;
-    if (!stale && state.live.length) return;
-    void refresh(false);
-  }, [refresh]);
-
   const onShuffle = useCallback(() => {
     const ok = shuffle();
     if (!ok) {
@@ -84,8 +83,7 @@ export function PaletteApp() {
     }
     setShuffling(true);
     window.setTimeout(() => setShuffling(false), 280);
-    if (Date.now() - usePalette.getState().fetchedAt > STALE_MS) void refresh(false);
-  }, [refresh, shuffle]);
+  }, [shuffle]);
 
   usePaletteHotkeys({
     openExport: () => setExportOpen(true),
@@ -137,7 +135,7 @@ export function PaletteApp() {
         </main>
 
         <footer className="hidden h-10 shrink-0 items-center justify-between border-t border-border px-5 text-xs text-muted-foreground sm:flex">
-          <p>Shuffle draws from a live batch of posts on X</p>
+          <p>Shuffle uses the feed. Search X only when you ask.</p>
           <p className="font-mono tracking-tight">
             Space shuffle · 1–5 lock · click to copy · E export
           </p>
@@ -156,7 +154,7 @@ export function PaletteApp() {
         palettes={catalog}
         activeId={meta.feedId}
         searching={searching}
-        onRefresh={() => void refresh(true)}
+        onRefresh={() => void refresh()}
         onPick={applyFeed}
       />
       <ShortcutsDialog open={helpOpen} onOpenChange={setHelpOpen} />
